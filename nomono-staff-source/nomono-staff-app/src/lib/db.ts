@@ -155,9 +155,9 @@ const toMember = (m: any): Member => ({
   avatar_url: m.avatar_url,
   date_of_birth: m.date_of_birth,
   joined_at: m.joined_at || m.created_at,
-  is_active: m.is_active ?? true,
+  is_active: (m.is_active ?? (m.status !== 'inactive')),
   total_exp: m.total_exp || 0,
-  koin_balance: m.koin_balance || 0
+  koin_balance: m.koin_balance ?? m.coin_balance ?? 0
 });
 const toPreset = (p: any): TxPreset => ({
   id: p.id,
