@@ -48,9 +48,9 @@ export default function App() {
       await db.upsertMember({
         full_name:data.full_name||'',
         email:data.email||'',
-        phone:data.phone as string||null,
+        phone:(data.phone as string)||null,
         avatar_url:null,
-        date_of_birth:data.date_of_birth as string||null,
+        date_of_birth:(data.date_of_birth as string)||null,
         is_active:true,
         total_exp:0,
         koin_balance:0
@@ -80,7 +80,9 @@ export default function App() {
     </div>
   );
 
-  if(!loggedIn||!curStaff) return <LoginScreen onLogin={(s)=>{setCurStaff(s);setLoggedIn(true);db.loadAll();}}/>;
+  if(!loggedIn||!curStaff) {
+    return <LoginScreen onLogin={(s)=>{setCurStaff(s);setLoggedIn(true);db.loadAll();}}/>;
+  }
 
   const canScan=hasPerm(curStaff,db.roles,'checkin')||hasPerm(curStaff,db.roles,'assign_activity');
   const canViewMembers=hasPerm(curStaff,db.roles,'view_members');
