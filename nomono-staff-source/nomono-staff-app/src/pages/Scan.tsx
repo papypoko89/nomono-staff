@@ -1,9 +1,46 @@
 import React, { useState } from 'react';
-import { Member, CheckIn, Transaction, Staff, TxPreset, TierConfig, RoleConfig, CHECK_IN_EXP, getTier, hasPerm, canUsePreset, CAT_LABELS } from '../lib/types';
+import {
+  Member,
+  CheckIn,
+  Transaction,
+  Staff,
+  TxPreset,
+  TierConfig,
+  RoleConfig,
+  CHECK_IN_EXP,
+  getTier,
+  hasPerm,
+  canUsePreset,
+  CAT_LABELS
+} from '../lib/types';
 import { IC, Badge, Av, Checkbox, TxAmt, fT } from '../components/ui';
 
-export default function ScanPage({members,checkins,setCheckins,setMembers,setTransactions,presets,staff,staffList,tiers,roles,onViewMember}:{
-  members:Member[];checkins:CheckIn[];setCheckins:React.Dispatch<React.SetStateAction<CheckIn[]>>;setMembers:React.Dispatch<React.SetStateAction<Member[]>>;setTransactions:React.Dispatch<React.SetStateAction<Transaction[]>>;presets:TxPreset[];staff:Staff;staffList:Staff[];tiers:TierConfig[];roles:RoleConfig[];onViewMember:(id:string)=>void;
+export default function ScanPage({
+  members,
+  checkins,
+  setCheckins,
+  setMembers,
+  setTransactions,
+  presets,
+  staff,
+  staffList,
+  tiers,
+  roles,
+  onViewMember,
+  updateMemberBalance
+}:{
+  members:Member[];
+  checkins:CheckIn[];
+  setCheckins:React.Dispatch<React.SetStateAction<CheckIn[]>>;
+  setMembers:React.Dispatch<React.SetStateAction<Member[]>>;
+  setTransactions:React.Dispatch<React.SetStateAction<Transaction[]>>;
+  presets:TxPreset[];
+  staff:Staff;
+  staffList:Staff[];
+  tiers:TierConfig[];
+  roles:RoleConfig[];
+  onViewMember:(id:string)=>void;
+  updateMemberBalance:(memberId:string, addExp:number, addKoin:number)=>Promise<boolean>;
 }) {
   const [q,setQ]=useState('');
   const [scanMode,setScanMode]=useState(false);
@@ -16,9 +53,18 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
   const canCI=hasPerm(staff,roles,'checkin');
   const canAssign=hasPerm(staff,roles,'assign_activity');
   const ciIds=new Set(checkins.map(c=>c.member_id));
-  const results=q.length>=2?members.filter(m=>m.is_active&&(m.full_name.toLowerCase().includes(q.toLowerCase())||m.phone?.includes(q)||m.email.toLowerCase().includes(q.toLowerCase()))):[];
 
-  const myPresets=presets.filter(p=>p.is_active&&canUsePreset(staff,p,roles));
+  const results=q.length>=2
+    ?members.filter(m=>
+      m.is_active&&(
+        m.full_name.toLowerCase().includes(q.toLowerCase())||
+        m.phone?.includes(q)||
+        m.email.toLowerCase().includes(q.toLowerCase())
+      )
+    )
+    :[];
+
+  const myPresets=presets.filter(p=>p.is_active&&canUsePreset(staff,p));
 
   const pick=(m:Member)=>{
     setTarget(m);
@@ -32,7 +78,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
   const toggle=(id:string)=>setSelected(p=>{
     const n={...p};
     n[id]=!n[id];
-    if(!n[id]) delete n[id];
+    if(!n[id])delete n[id];
     return n;
   });
 
@@ -42,7 +88,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
   const totK=selPresets.reduce((s,p)=>s+p.koin_amount,0);
   const koinOk=!target||(target.koin_balance+totK>=0);
 
-  const doConfirm=()=>{
+  const doConfirm=async()=>{
     if(!target||!selPresets.length)return;
     if(needsPin&&!pinStep){setPinStep(true);return;}
     if(needsPin&&pinStep&&!staffList.find(s=>hasPerm(s,roles,'approve_pin')&&s.pin===pinInput))return;
@@ -93,11 +139,17 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
 
     setTransactions(p=>[...txs,...p]);
 
-    setMembers(p=>p.map(m=>m.id===target.id?{
-      ...m,
-      total_exp:m.total_exp+(didCI?CHECK_IN_EXP:0)+totE,
-      koin_balance:m.koin_balance+totK
-    }:m));
+    setMembers(p=>p.map(m=>
+      m.id===target.id
+        ? {...m,total_exp:m.total_exp+(didCI?CHECK_IN_EXP:0)+totE,koin_balance:m.koin_balance+totK}
+        : m
+    ));
+
+    await updateMemberBalance(
+      target.id,
+      (didCI?CHECK_IN_EXP:0)+totE,
+      totK
+    );
 
     const pts:string[]=[];
     if(didCI)pts.push('Check-in +25 EXP');
@@ -112,7 +164,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
     setTimeout(()=>setFlash(null),3000);
   };
 
-  const doSkip=()=>{
+  const doSkip=async()=>{
     if(!target)return;
 
     if(canCI&&!ciIds.has(target.id)){
@@ -146,6 +198,9 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
       ]);
 
       setMembers(p=>p.map(m=>m.id===target.id?{...m,total_exp:m.total_exp+CHECK_IN_EXP}:m));
+
+      await updateMemberBalance(target.id,CHECK_IN_EXP,0);
+
       setFlash(`✓ ${target.full_name} — Check-in +25 EXP`);
     }
 
@@ -182,7 +237,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
 
         {notCI&&<div className="p-2.5 rounded-lg text-center font-mono text-xs font-medium" style={{background:'#003820',color:'#E0DBBC'}}>Auto check-in +{CHECK_IN_EXP} EXP</div>}
 
-        {canAssign&&(
+        {canAssign&&
           <div>
             <h3 className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{color:'#231F2088'}}>Pilih Aktivitas (bisa &gt; 1)</h3>
             <div className="space-y-1.5">
@@ -205,17 +260,15 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
                       </div>
                       <div className="font-mono text-[9px]" style={{color:'#231F2066'}}>{CAT_LABELS[p.category]}</div>
                     </div>
-                    <div className="shrink-0">
-                      <TxAmt exp={p.exp_amount} koin={p.koin_amount} compact/>
-                    </div>
+                    <div className="shrink-0"><TxAmt exp={p.exp_amount} koin={p.koin_amount} compact/></div>
                   </div>
                 );
               })}
             </div>
           </div>
-        )}
+        }
 
-        {selPresets.length>0&&(
+        {selPresets.length>0&&
           <div className="p-3 rounded-lg border-2 border-[#003820]" style={{background:'#00382008'}}>
             <div className="font-mono text-[10px] uppercase tracking-widest mb-1" style={{color:'#231F2088'}}>Total{notCI?' (+ check-in)':''}</div>
             <div className="font-mono text-base font-bold flex gap-3">
@@ -225,9 +278,9 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
             </div>
             {!koinOk&&<div className="font-mono text-[10px] text-red-500 mt-1">Koin tidak cukup</div>}
           </div>
-        )}
+        }
 
-        {pinStep&&(
+        {pinStep&&
           <div className="space-y-2">
             <div className="font-mono text-[10px] uppercase tracking-widest" style={{color:'#dc2626'}}>PIN Manager</div>
             <input
@@ -240,7 +293,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
               autoFocus
             />
           </div>
-        )}
+        }
 
         <div className="flex gap-2">
           <button onClick={doSkip} className="flex-1 py-2.5 rounded-lg font-mono text-[10px] uppercase tracking-widest border" style={{borderColor:'#231F2015',color:'#231F2088'}}>
@@ -309,42 +362,41 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
             />
           </div>
 
-          {q.length>=2&&(
+          {q.length>=2&&
             <div className="space-y-2">
-              {results.length===0?(
-                <p className="font-mono text-xs text-center py-6" style={{color:'#231F2088'}}>Tidak ditemukan</p>
-              ):results.map(m=>{
-                const tier=getTier(m.total_exp,tiers);
-                const done=ciIds.has(m.id);
-
-                return (
-                  <button
-                    key={m.id}
-                    onClick={()=>pick(m)}
-                    className="w-full flex items-center justify-between p-3 rounded-lg border hover:border-[#C39A4B55] text-left"
-                    style={{borderColor:'#231F2015'}}
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <Av name={m.full_name} size={40} tier={tier}/>
-                      <div className="min-w-0">
-                        <div className="font-mono text-sm font-medium truncate" style={{color:'#231F20'}}>{m.full_name}</div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Badge tier={tier}/>
-                          <span className="font-mono text-[10px]" style={{color:'#231F2088'}}>{m.koin_balance} K</span>
-                          {done&&canCI&&<span className="text-[8px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-mono">In</span>}
+              {results.length===0
+                ?<p className="font-mono text-xs text-center py-6" style={{color:'#231F2088'}}>Tidak ditemukan</p>
+                :results.map(m=>{
+                  const tier=getTier(m.total_exp,tiers);
+                  const done=ciIds.has(m.id);
+                  return(
+                    <button
+                      key={m.id}
+                      onClick={()=>pick(m)}
+                      className="w-full flex items-center justify-between p-3 rounded-lg border hover:border-[#C39A4B55] text-left"
+                      style={{borderColor:'#231F2015'}}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Av name={m.full_name} size={40} tier={tier}/>
+                        <div className="min-w-0">
+                          <div className="font-mono text-sm font-medium truncate" style={{color:'#231F20'}}>{m.full_name}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Badge tier={tier}/>
+                            <span className="font-mono text-[10px]" style={{color:'#231F2088'}}>{m.koin_balance} K</span>
+                            {done&&canCI&&<span className="text-[8px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-mono">In</span>}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 font-mono text-[10px] uppercase tracking-widest font-bold" style={{color:'#C39A4B'}}>Pilih →</div>
-                  </button>
-                );
-              })}
+                      <div className="shrink-0 font-mono text-[10px] uppercase tracking-widest font-bold" style={{color:'#C39A4B'}}>Pilih →</div>
+                    </button>
+                  );
+                })}
             </div>
-          )}
+          }
         </>
       )}
 
-      {canCI&&checkins.length>0&&(
+      {canCI&&checkins.length>0&&
         <div>
           <h3 className="font-mono text-[10px] uppercase tracking-widest mb-3" style={{color:'#231F2088'}}>Hari Ini ({checkins.length})</h3>
           <div className="space-y-1.5">
@@ -352,8 +404,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
               const m=members.find(x=>x.id===ci.member_id);
               if(!m)return null;
               const tier=getTier(m.total_exp,tiers);
-
-              return (
+              return(
                 <div
                   key={ci.id}
                   className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:border-[#C39A4B55]"
@@ -376,7 +427,7 @@ export default function ScanPage({members,checkins,setCheckins,setMembers,setTra
             })}
           </div>
         </div>
-      )}
+      }
     </div>
   );
 }
