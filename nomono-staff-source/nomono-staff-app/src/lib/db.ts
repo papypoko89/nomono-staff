@@ -54,7 +54,6 @@ function normalizeLevelPerms(raw: any, togglePerms?: Record<TogglePerm, boolean>
     manage_staff: (p.manage_staff as PermLevel) || 'none',
   };
 
-  // fallback dari format lama
   if (p.manage_staff === true) direct.manage_staff = 'modify';
   if (p.manage_settings === true) {
     direct.master_presets = 'modify';
@@ -63,7 +62,6 @@ function normalizeLevelPerms(raw: any, togglePerms?: Record<TogglePerm, boolean>
     direct.manage_staff = 'modify';
   }
 
-  // fallback kalau manager punya semua toggle tapi level kosong
   const looksLikeManager =
     t.checkin &&
     t.assign_activity &&
@@ -333,10 +331,15 @@ export function useSupabaseData() {
   const updateMemberBalance = async (memberId: string, addExp: number, addKoin: number) => {
     const member = members.find(m => m.id === memberId);
     if (!member) return false;
-    const { error } = await supabase.from('members').update({
-      total_exp: member.total_exp + addExp,
-      koin_balance: member.koin_balance + addKoin
-    }).eq('id', memberId);
+
+    const { error } = await supabase
+      .from('members')
+      .update({
+        total_exp: member.total_exp + addExp,
+        coin_balance: member.koin_balance + addKoin
+      })
+      .eq('id', memberId);
+
     if (!error) {
       setMembers(p => p.map(m => m.id === memberId
         ? { ...m, total_exp: m.total_exp + addExp, koin_balance: m.koin_balance + addKoin }
