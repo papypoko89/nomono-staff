@@ -4,10 +4,11 @@ import { useSupabaseData, loginStaff, logoutStaff } from './lib/db';
 import { IC, RolePills } from './components/ui';
 import DashboardPage from './pages/Dashboard';
 import ScanPage from './pages/Scan';
+import VoucherRedeemPage from './pages/VoucherRedeem';
 import { MembersPage, MemberDetailPage, MemberFormPage } from './pages/Members';
 import SettingsPage from './pages/Settings';
 
-type Page='dashboard'|'scan'|'members'|'member-detail'|'member-form'|'add-member'|'settings';
+type Page='dashboard'|'scan'|'voucher'|'members'|'member-detail'|'member-form'|'add-member'|'settings';
 
 export default function App() {
   const [loggedIn,setLoggedIn]=useState(false);
@@ -95,6 +96,7 @@ export default function App() {
   const navItems:{key:Page;icon:React.ReactNode;label:string;show:boolean}[]=[
     {key:'dashboard',icon:IC.home,label:'Home',show:true},
     {key:'scan',icon:IC.scan,label:'Scan',show:canScan},
+    {key:'voucher',icon:IC.voucher,label:'Voucher',show:true},
     {key:'members',icon:IC.members,label:'Members',show:canViewMembers},
     {key:'settings',icon:IC.settings,label:'Settings',show:hasAnySettings||true},
   ];
@@ -140,6 +142,10 @@ export default function App() {
             onViewMember={viewMember}
             updateMemberBalance={db.updateMemberBalance}
           />
+        }
+
+        {page==='voucher'&&
+          <VoucherRedeemPage staff={curStaff} />
         }
 
         {page==='members'&&
