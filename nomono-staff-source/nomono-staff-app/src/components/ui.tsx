@@ -22,6 +22,7 @@ chk:<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" s
 staff:<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="6" cy="3.5" r="2"/><path d="M2 11c0-2.2 1.8-4 4-4s4 1.8 4 4"/></svg>,
 cake:<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M2 10v4h12v-4"/><path d="M2 10c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"/><path d="M5 8V6M8 8V5M11 8V6"/><circle cx="5" cy="5" r=".8" fill="currentColor" stroke="none"/><circle cx="8" cy="4" r=".8" fill="currentColor" stroke="none"/><circle cx="11" cy="5" r=".8" fill="currentColor" stroke="none"/></svg>,
 user:<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="10" cy="6" r="4"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>,
+voucher:<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 7a2 2 0 012-2h12a2 2 0 012 2v1a2.5 2.5 0 000 5v1a2 2 0 01-2 2H4a2 2 0 01-2-2v-1a2.5 2.5 0 000-5V7z"/><line x1="8" y1="5" x2="8" y2="16" strokeDasharray="2 2"/></svg>,
 };
 
 export function Badge({tier,size='sm'}:{tier:TierConfig;size?:'sm'|'md'}){
