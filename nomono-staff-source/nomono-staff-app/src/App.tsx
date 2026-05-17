@@ -9,8 +9,10 @@ import { MembersPage, MemberDetailPage, MemberFormPage } from './pages/Members';
 import SettingsPage from './pages/Settings';
 import MajooHubPage from './pages/MajooHub';
 import MajooImportPage from './pages/MajooImport';
+import UnmatchedReviewPage from './pages/UnmatchedReview';
+import ImportHistoryPage from './pages/ImportHistory';
 
-type Page='dashboard'|'scan'|'voucher'|'members'|'member-detail'|'member-form'|'add-member'|'settings'|'majoo'|'majoo-import';
+type Page='dashboard'|'scan'|'voucher'|'members'|'member-detail'|'member-form'|'add-member'|'settings'|'majoo'|'majoo-import'|'majoo-review'|'majoo-history';
 
 export default function App() {
   const [loggedIn,setLoggedIn]=useState(false);
@@ -161,8 +163,8 @@ export default function App() {
             unmatchedCount={db.unmatchedTxs.length}
             lastImportAt={lastImport}
             onImport={()=>navTo('majoo-import')}
-            onHistory={()=>navTo('majoo')}
-            onReview={()=>navTo('majoo')}
+            onHistory={()=>navTo('majoo-history')}
+            onReview={()=>navTo('majoo-review')}
           />
         }
 
@@ -177,6 +179,28 @@ export default function App() {
             addTransaction={db.addTransaction}
             updateMemberBalance={db.updateMemberBalance}
             existingMajooTxIds={existingMajooTxIds}
+          />
+        }
+
+        {page==='majoo-review'&&
+          <UnmatchedReviewPage
+            staff={curStaff}
+            roles={db.roles}
+            tiers={db.tiers}
+            members={db.members}
+            unmatchedTxs={db.unmatchedTxs}
+            onBack={()=>navTo('majoo')}
+            resolveUnmatchedTx={db.resolveUnmatchedTx}
+            skipUnmatchedTx={db.skipUnmatchedTx}
+            addTransaction={db.addTransaction}
+            updateMemberBalance={db.updateMemberBalance}
+          />
+        }
+
+        {page==='majoo-history'&&
+          <ImportHistoryPage
+            imports={db.majooImports}
+            onBack={()=>navTo('majoo')}
           />
         }
 
@@ -222,7 +246,7 @@ export default function App() {
         {navItems.filter(i=>i.show).map(item=>{
           const active=page===item.key
             ||(item.key==='members'&&['member-detail','member-form','add-member'].includes(page))
-            ||(item.key==='majoo'&&page==='majoo-import');
+            ||(item.key==='majoo'&&['majoo-import','majoo-review','majoo-history'].includes(page));
           return (
             <button
               key={item.key}
