@@ -134,6 +134,8 @@ export default function App() {
             staff={curStaff}
             tiers={db.tiers}
             roles={db.roles}
+            majooImports={db.majooImports}
+            unmatchedCount={db.unmatchedTxs.length}
           />
         }
 
