@@ -134,9 +134,7 @@ export default function App() {
             setCheckins={db.setCheckins}
             setMembers={db.setMembers}
             setTransactions={db.setTransactions}
-            presets={db.presets}
             staff={curStaff}
-            staffList={db.staffList}
             tiers={db.tiers}
             roles={db.roles}
             onViewMember={viewMember}
