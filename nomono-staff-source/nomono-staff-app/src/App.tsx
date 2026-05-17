@@ -7,8 +7,10 @@ import ScanPage from './pages/Scan';
 import VoucherRedeemPage from './pages/VoucherRedeem';
 import { MembersPage, MemberDetailPage, MemberFormPage } from './pages/Members';
 import SettingsPage from './pages/Settings';
+import MajooHubPage from './pages/MajooHub';
+import MajooImportPage from './pages/MajooImport';
 
-type Page='dashboard'|'scan'|'voucher'|'members'|'member-detail'|'member-form'|'add-member'|'settings';
+type Page='dashboard'|'scan'|'voucher'|'members'|'member-detail'|'member-form'|'add-member'|'settings'|'majoo'|'majoo-import';
 
 export default function App() {
   const [loggedIn,setLoggedIn]=useState(false);
@@ -87,16 +89,22 @@ export default function App() {
 
   const canScan=hasPerm(curStaff,db.roles,'checkin')||hasPerm(curStaff,db.roles,'assign_activity');
   const canViewMembers=hasPerm(curStaff,db.roles,'view_members');
+  const canMajoo=hasPerm(curStaff,db.roles,'import_majoo')||hasPerm(curStaff,db.roles,'review_unmatched');
   const hasAnySettings=
     getLevel(curStaff,db.roles,'master_presets')!=='none'||
     getLevel(curStaff,db.roles,'master_tiers')!=='none'||
     getLevel(curStaff,db.roles,'master_roles')!=='none'||
     getLevel(curStaff,db.roles,'manage_staff')!=='none';
 
-  const navItems:{key:Page;icon:React.ReactNode;label:string;show:boolean}[]=[
+  const lastImport = db.majooImports[0]?.imported_at ?? null;
+  const existingMajooTxIds = new Set(
+    db.transactions.filter(t=>t.majoo_transaction_id).map(t=>t.majoo_transaction_id!)
+  );
+
+  const navItems:{key:Page;icon:React.ReactNode;label:string;show:boolean;badge?:number}[]=[
     {key:'dashboard',icon:IC.home,label:'Home',show:true},
     {key:'scan',icon:IC.scan,label:'Scan',show:canScan},
-    {key:'voucher',icon:IC.voucher,label:'Voucher',show:true},
+    {key:'majoo',icon:IC.upload,label:'Majoo',show:canMajoo,badge:db.unmatchedTxs.length||undefined},
     {key:'members',icon:IC.members,label:'Members',show:canViewMembers},
     {key:'settings',icon:IC.settings,label:'Settings',show:hasAnySettings||true},
   ];
@@ -146,6 +154,32 @@ export default function App() {
           <VoucherRedeemPage staff={curStaff} />
         }
 
+        {page==='majoo'&&
+          <MajooHubPage
+            staff={curStaff}
+            roles={db.roles}
+            unmatchedCount={db.unmatchedTxs.length}
+            lastImportAt={lastImport}
+            onImport={()=>navTo('majoo-import')}
+            onHistory={()=>navTo('majoo')}
+            onReview={()=>navTo('majoo')}
+          />
+        }
+
+        {page==='majoo-import'&&
+          <MajooImportPage
+            staff={curStaff}
+            onBack={()=>navTo('majoo')}
+            findMemberByPhone={db.findMemberByPhone}
+            createMajooImport={db.createMajooImport}
+            updateMajooImport={db.updateMajooImport}
+            addUnmatchedTx={db.addUnmatchedTx}
+            addTransaction={db.addTransaction}
+            updateMemberBalance={db.updateMemberBalance}
+            existingMajooTxIds={existingMajooTxIds}
+          />
+        }
+
         {page==='members'&&
           <MembersPage
             members={db.members}
@@ -186,15 +220,22 @@ export default function App() {
 
       <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around py-2 px-2 border-t" style={{background:'#FAFAF7',borderColor:'#231F2010'}}>
         {navItems.filter(i=>i.show).map(item=>{
-          const active=page===item.key||(item.key==='members'&&['member-detail','member-form','add-member'].includes(page));
+          const active=page===item.key
+            ||(item.key==='members'&&['member-detail','member-form','add-member'].includes(page))
+            ||(item.key==='majoo'&&page==='majoo-import');
           return (
             <button
               key={item.key}
               onClick={()=>navRoot(item.key)}
-              className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg"
+              className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg relative"
               style={{color:active?'#003820':'#231F2055'}}
             >
               {item.icon}
+              {item.badge && item.badge > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full font-mono text-[8px] font-bold flex items-center justify-center" style={{background:'#C39A4B',color:'#fff'}}>
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              )}
               <span className={`font-mono text-[9px] uppercase tracking-widest ${active?'font-bold':''}`}>{item.label}</span>
             </button>
           );
