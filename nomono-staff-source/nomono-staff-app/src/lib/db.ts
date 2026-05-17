@@ -8,6 +8,8 @@ import {
   RoleConfig,
   CheckIn,
   Transaction,
+  MajooImport,
+  UnmatchedTransaction,
   TogglePerm,
   LevelPerm,
   PermLevel,
@@ -22,6 +24,8 @@ const emptyTogglePerms: Record<TogglePerm, boolean> = {
   edit_members: false,
   view_transactions: false,
   approve_pin: false,
+  import_majoo: false,
+  review_unmatched: false,
 };
 
 const emptyLevelPerms: Record<LevelPerm, PermLevel> = {
@@ -40,6 +44,8 @@ function normalizeTogglePerms(raw: any): Record<TogglePerm, boolean> {
     edit_members: p.edit_members === true,
     view_transactions: p.view_transactions === true || p.view_reports === true,
     approve_pin: p.approve_pin === true,
+    import_majoo: p.import_majoo === true,
+    review_unmatched: p.review_unmatched === true,
   };
 }
 
@@ -150,12 +156,14 @@ const toMember = (m: any): Member => ({
   full_name: m.full_name,
   email: m.email,
   phone: m.phone,
+  phone_normalized: m.phone_normalized ?? null,
   avatar_url: m.avatar_url,
   date_of_birth: m.date_of_birth,
   joined_at: m.joined_at || m.created_at,
   is_active: (m.is_active ?? (m.status !== 'inactive')),
   total_exp: m.total_exp || 0,
-  koin_balance: m.koin_balance ?? m.coin_balance ?? 0
+  koin_balance: m.koin_balance ?? m.coin_balance ?? 0,
+  majoo_synced_at: m.majoo_synced_at ?? null,
 });
 const toPreset = (p: any): TxPreset => ({
   id: p.id,
@@ -186,7 +194,50 @@ const toTx = (t: any): Transaction => ({
   preset_id: t.preset_id,
   created_by: t.created_by || t.staff_id,
   staff_name: t.staff_name || '',
-  created_at: t.created_at
+  created_at: t.created_at,
+  source: t.source ?? 'manual',
+  majoo_import_id: t.majoo_import_id ?? null,
+  majoo_transaction_id: t.majoo_transaction_id ?? null,
+  nominal_amount: t.nominal_amount ?? null,
+});
+
+const toMajooImport = (r: any): MajooImport => ({
+  id: r.id,
+  imported_at: r.imported_at,
+  imported_by: r.imported_by ?? null,
+  imported_by_name: r.imported_by_name ?? null,
+  file_name: r.file_name ?? null,
+  periode_start: r.periode_start ?? null,
+  periode_end: r.periode_end ?? null,
+  total_rows: r.total_rows || 0,
+  matched_count: r.matched_count || 0,
+  unmatched_count: r.unmatched_count || 0,
+  skipped_count: r.skipped_count || 0,
+  total_exp_added: r.total_exp_added || 0,
+  total_koin_added: r.total_koin_added || 0,
+  total_nominal: r.total_nominal || 0,
+  status: r.status || 'pending',
+  notes: r.notes ?? null,
+  skip_reasons: r.skip_reasons ?? null,
+});
+
+const toUnmatched = (r: any): UnmatchedTransaction => ({
+  id: r.id,
+  import_id: r.import_id ?? null,
+  majoo_transaction_id: r.majoo_transaction_id ?? null,
+  majoo_phone: r.majoo_phone ?? null,
+  majoo_phone_normalized: r.majoo_phone_normalized ?? null,
+  majoo_customer_name: r.majoo_customer_name ?? null,
+  transaction_date: r.transaction_date ?? null,
+  total_nominal: r.total_nominal || 0,
+  reason: r.reason ?? null,
+  status: r.status || 'pending',
+  assigned_member_id: r.assigned_member_id ?? null,
+  resolved_at: r.resolved_at ?? null,
+  resolved_by: r.resolved_by ?? null,
+  resolved_by_name: r.resolved_by_name ?? null,
+  notes: r.notes ?? null,
+  created_at: r.created_at,
 });
 
 async function fetchTable(table: string, orderBy = 'created_at', asc = false) {
@@ -207,6 +258,8 @@ export function useSupabaseData() {
   const [presets, setPresets] = useState<TxPreset[]>([]);
   const [checkins, setCheckins] = useState<CheckIn[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [majooImports, setMajooImports] = useState<MajooImport[]>([]);
+  const [unmatchedTxs, setUnmatchedTxs] = useState<UnmatchedTransaction[]>([]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -220,6 +273,10 @@ export function useSupabaseData() {
         fetchTable('checkins'),
         fetchTable('transactions'),
       ]);
+
+      const majooImportsD = await fetchTable('majoo_imports', 'imported_at', false).catch(() => [] as any[]);
+      const unmatchedRes = await supabase.from('unmatched_transactions').select('*').eq('status','pending').order('created_at',{ascending:false});
+      const unmatchedD = unmatchedRes.data || [];
 
       const mappedRoles = mergeRolesWithDefaults(rolesD.map(toRole));
 
@@ -236,6 +293,8 @@ export function useSupabaseData() {
           .map(toCheckin)
       );
       setTransactions(txD.map(toTx));
+      setMajooImports(majooImportsD.map(toMajooImport));
+      setUnmatchedTxs(unmatchedD.map(toUnmatched));
     } catch (e) {
       console.error('Load error:', e);
     }
@@ -399,9 +458,93 @@ export function useSupabaseData() {
       description: tx.description,
       preset_id: tx.preset_id,
       created_by: tx.created_by,
-      staff_name: tx.staff_name
+      staff_name: tx.staff_name,
+      source: tx.source ?? 'manual',
+      majoo_import_id: tx.majoo_import_id ?? null,
+      majoo_transaction_id: tx.majoo_transaction_id ?? null,
+      nominal_amount: tx.nominal_amount ?? null,
     }).select().single();
     if (!error && data) setTransactions(p => [toTx(data), ...p]);
+    return !error;
+  };
+
+  // ── Fetch majoo imports (refresh manual) ──
+  const fetchMajooImports = async () => {
+    const data = await fetchTable('majoo_imports', 'imported_at', false).catch(() => []);
+    setMajooImports(data.map(toMajooImport));
+  };
+
+  // ── Fetch unmatched yang masih pending ──
+  const fetchUnmatchedTxs = async () => {
+    const { data } = await supabase
+      .from('unmatched_transactions')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    setUnmatchedTxs((data || []).map(toUnmatched));
+  };
+
+  // ── Cari member berdasarkan normalized phone ──
+  const findMemberByPhone = async (normalizedPhone: string): Promise<Member | null> => {
+    const { data } = await supabase
+      .from('members')
+      .select('*')
+      .eq('phone_normalized', normalizedPhone)
+      .eq('is_active', true)
+      .single();
+    return data ? toMember(data) : null;
+  };
+
+  // ── Simpan hasil import Majoo ke DB ──
+  const createMajooImport = async (payload: Omit<MajooImport, 'id' | 'imported_at'>): Promise<MajooImport | null> => {
+    const { data, error } = await supabase.from('majoo_imports').insert(payload).select().single();
+    if (error || !data) return null;
+    const record = toMajooImport(data);
+    setMajooImports(p => [record, ...p]);
+    return record;
+  };
+
+  const updateMajooImport = async (id: string, updates: Partial<MajooImport>) => {
+    const { error } = await supabase.from('majoo_imports').update(updates).eq('id', id);
+    if (!error) setMajooImports(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
+    return !error;
+  };
+
+  // ── Tambah unmatched transaction ke queue ──
+  const addUnmatchedTx = async (payload: Omit<UnmatchedTransaction, 'id' | 'created_at'>) => {
+    const { data, error } = await supabase.from('unmatched_transactions').insert(payload).select().single();
+    if (!error && data) setUnmatchedTxs(p => [toUnmatched(data), ...p]);
+    return !error;
+  };
+
+  // ── Assign unmatched ke member ──
+  const resolveUnmatchedTx = async (
+    unmatchedId: string,
+    memberId: string,
+    staffId: string,
+    staffName: string,
+  ) => {
+    const { error } = await supabase.from('unmatched_transactions').update({
+      status: 'assigned',
+      assigned_member_id: memberId,
+      resolved_at: new Date().toISOString(),
+      resolved_by: staffId,
+      resolved_by_name: staffName,
+    }).eq('id', unmatchedId);
+    if (!error) setUnmatchedTxs(p => p.filter(u => u.id !== unmatchedId));
+    return !error;
+  };
+
+  // ── Skip unmatched (non-member) ──
+  const skipUnmatchedTx = async (unmatchedId: string, staffId: string, staffName: string, notes?: string) => {
+    const { error } = await supabase.from('unmatched_transactions').update({
+      status: 'skipped',
+      resolved_at: new Date().toISOString(),
+      resolved_by: staffId,
+      resolved_by_name: staffName,
+      notes: notes ?? null,
+    }).eq('id', unmatchedId);
+    if (!error) setUnmatchedTxs(p => p.filter(u => u.id !== unmatchedId));
     return !error;
   };
 
@@ -431,7 +574,20 @@ export function useSupabaseData() {
     upsertPreset,
     deletePreset,
     addCheckin,
-    addTransaction
+    addTransaction,
+    // Majoo
+    majooImports,
+    setMajooImports,
+    unmatchedTxs,
+    setUnmatchedTxs,
+    fetchMajooImports,
+    fetchUnmatchedTxs,
+    findMemberByPhone,
+    createMajooImport,
+    updateMajooImport,
+    addUnmatchedTx,
+    resolveUnmatchedTx,
+    skipUnmatchedTx,
   };
 }
 
