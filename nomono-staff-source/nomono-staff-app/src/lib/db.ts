@@ -457,13 +457,14 @@ export function useSupabaseData() {
       koin_amount: tx.koin_amount,
       description: tx.description,
       preset_id: tx.preset_id,
-      created_by: tx.created_by,
+      staff_id: tx.created_by,
       staff_name: tx.staff_name,
       source: tx.source ?? 'manual',
       majoo_import_id: tx.majoo_import_id ?? null,
       majoo_transaction_id: tx.majoo_transaction_id ?? null,
       nominal_amount: tx.nominal_amount ?? null,
     }).select().single();
+    if (error) console.error('addTransaction error:', error);
     if (!error && data) setTransactions(p => [toTx(data), ...p]);
     return !error;
   };
