@@ -457,7 +457,7 @@ export function useSupabaseData() {
       koin_amount: tx.koin_amount,
       description: tx.description,
       preset_id: tx.preset_id,
-      staff_id: tx.created_by,
+      staff_id: null,
       staff_name: tx.staff_name,
       source: tx.source ?? 'manual',
       majoo_import_id: tx.majoo_import_id ?? null,
