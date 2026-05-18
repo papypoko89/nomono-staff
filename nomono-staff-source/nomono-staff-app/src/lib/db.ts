@@ -490,9 +490,8 @@ export function useSupabaseData() {
       .from('members')
       .select('*')
       .eq('phone_normalized', normalizedPhone)
-      .eq('is_active', true)
-      .single();
-    return data ? toMember(data) : null;
+      .limit(1);
+    return data && data.length > 0 ? toMember(data[0]) : null;
   };
 
   // ── Simpan hasil import Majoo ke DB ──
