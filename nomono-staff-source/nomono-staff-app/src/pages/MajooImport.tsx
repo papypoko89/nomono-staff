@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { IC } from '../components/ui';
 import { parseMajooExcel, decideMajooRow, type MajooRow, type MatchDecision } from '../lib/majoo-parser';
+import { normalizePhone, isValidIndonesianMobile } from '../lib/majoo-helpers';
 import type { Staff, Member } from '../lib/types';
 import type { MajooImport } from '../lib/types';
+import { supabase } from '../lib/supabase';
 
 // ── Types lokal ──
 
@@ -78,6 +80,12 @@ export default function MajooImportPage({
 
   // ── Langkah 1: parse file ──
   const handleFile = async (f: File) => {
+    // Cek ukuran file — max 10MB
+    if (f.size > 10 * 1024 * 1024) {
+      setParseError('File terlalu besar (maks 10MB). Pastikan file yang dipilih benar.');
+      return;
+    }
+
     setFile(f);
     setParseError(null);
     try {
@@ -85,9 +93,41 @@ export default function MajooImportPage({
       setMeta(result.meta);
       setRows(result.rows);
 
-      // Preview: hitung estimasi match/unmatched/skip (tanpa hit DB)
+      // Fetch existingIds dan member phones sekaligus — 2 query, bukan N query
+      const [existingTxRes, phoneBatchRes] = await Promise.all([
+        supabase.from('transactions').select('majoo_transaction_id').not('majoo_transaction_id', 'is', null),
+        (() => {
+          const phones = result.rows
+            .map(r => normalizePhone(r.no_telepon))
+            .filter(p => isValidIndonesianMobile(p));
+          if (phones.length === 0) return Promise.resolve({ data: [] });
+          return supabase.from('members').select('*').in('phone_normalized', phones);
+        })(),
+      ]);
+
+      const previewIds = new Set<string>(
+        (existingTxRes.data || []).map((t: any) => t.majoo_transaction_id as string)
+      );
+      const memberByPhone = new Map<string, Member>(
+        (phoneBatchRes.data || []).map((m: any) => [
+          m.phone_normalized as string,
+          {
+            id: m.id, full_name: m.full_name, email: m.email, phone: m.phone,
+            phone_normalized: m.phone_normalized ?? null,
+            avatar_url: m.avatar_url, date_of_birth: m.date_of_birth,
+            joined_at: m.joined_at || m.created_at, is_active: m.is_active ?? true,
+            total_exp: m.total_exp || 0,
+            koin_balance: m.koin_balance ?? m.coin_balance ?? 0,
+            majoo_synced_at: m.majoo_synced_at ?? null,
+          } as Member,
+        ])
+      );
+
+      // Preview: gunakan Map hasil batch — tidak ada DB call per baris
       const decisions = await Promise.all(
-        result.rows.map(row => decideMajooRow(row, existingMajooTxIds, findMemberByPhone))
+        result.rows.map(row =>
+          decideMajooRow(row, previewIds, async (phone) => memberByPhone.get(phone) ?? null)
+        )
       );
 
       const processed: ProcessedRow[] = result.rows.map((row, i) => ({ row, decision: decisions[i] }));
@@ -141,10 +181,21 @@ export default function MajooImportPage({
       let totalKoin = 0;
       let totalNominal = 0;
       const skipReasons: Record<string, number> = {};
+      // Akumulasi delta per member — hindari stale state kalau 1 member ada >1 transaksi
+      const memberDeltas = new Map<string, { exp: number; koin: number }>();
 
-      // Re-compute decisions (pakai existingIds yang fresh)
+      // Fetch fresh IDs dari DB (bukan dari state) untuk cek duplikat yang akurat
+      const { data: existingTxData } = await supabase
+        .from('transactions')
+        .select('majoo_transaction_id')
+        .not('majoo_transaction_id', 'is', null);
+      const freshIds = new Set<string>(
+        (existingTxData || []).map((t: any) => t.majoo_transaction_id as string)
+      );
+
+      // Re-compute decisions dengan freshIds
       const decisions = await Promise.all(
-        rows.map(row => decideMajooRow(row, existingMajooTxIds, findMemberByPhone))
+        rows.map(row => decideMajooRow(row, freshIds, findMemberByPhone))
       );
 
       for (let i = 0; i < rows.length; i++) {
@@ -176,12 +227,7 @@ export default function MajooImportPage({
           });
 
         } else if (d.action === 'match' && d.member) {
-          matchedCount++;
-          totalExp += d.exp ?? 0;
-          totalKoin += d.koin ?? 0;
-          totalNominal += row.total_penjualan;
-
-          await addTransaction({
+          const txSuccess = await addTransaction({
             member_id: d.member.id,
             exp_amount: d.exp ?? 0,
             koin_amount: d.koin ?? 0,
@@ -195,8 +241,33 @@ export default function MajooImportPage({
             nominal_amount: row.total_penjualan,
           });
 
-          await updateMemberBalance(d.member.id, d.exp ?? 0, d.koin ?? 0);
+          if (!txSuccess) {
+            // Insert gagal (kemungkinan duplikat di DB level), skip baris ini
+            skippedCount++;
+            skipReasons['db_error'] = (skipReasons['db_error'] || 0) + 1;
+            continue;
+          }
+
+          // Tambah ke freshIds supaya intra-file duplicate terdeteksi
+          freshIds.add(row.no_transaksi);
+
+          matchedCount++;
+          totalExp += d.exp ?? 0;
+          totalKoin += d.koin ?? 0;
+          totalNominal += row.total_penjualan;
+
+          // Akumulasi delta — jangan langsung update balance di sini
+          const cur = memberDeltas.get(d.member.id) || { exp: 0, koin: 0 };
+          memberDeltas.set(d.member.id, {
+            exp: cur.exp + (d.exp ?? 0),
+            koin: cur.koin + (d.koin ?? 0),
+          });
         }
+      }
+
+      // Update balance per member 1x dengan total delta — fresh fetch dari DB
+      for (const [memberId, delta] of memberDeltas) {
+        await updateMemberBalance(memberId, delta.exp, delta.koin);
       }
 
       // Update record import dengan hasil final
@@ -305,6 +376,31 @@ export default function MajooImportPage({
             </div>
             <div className="font-mono text-[10px] shrink-0" style={{ color: '#231F2066' }}>{rows.length} baris</div>
           </div>
+
+          {/* Banner: >80% duplikat — kemungkinan salah file */}
+          {(() => {
+            const dupCount = summary.skipped.filter(p => p.decision.skipReason === 'duplicate').length;
+            const dupRatio = rows.length > 0 ? dupCount / rows.length : 0;
+            if (dupRatio > 0.8) return (
+              <div className="p-3 rounded-lg border-2 flex items-start gap-2" style={{ borderColor: '#dc2626', background: '#dc262610' }}>
+                <span className="text-sm shrink-0">🚨</span>
+                <div>
+                  <div className="font-mono text-xs font-bold" style={{ color: '#dc2626' }}>Sebagian besar transaksi duplikat ({dupCount} dari {rows.length})</div>
+                  <div className="font-mono text-[10px] mt-0.5" style={{ color: '#dc2626' }}>Apakah yakin ini file yang benar?</div>
+                </div>
+              </div>
+            );
+            if (dupCount > 0) return (
+              <div className="p-3 rounded-lg border-2 flex items-start gap-2" style={{ borderColor: '#C39A4B', background: '#C39A4B10' }}>
+                <span className="text-sm shrink-0">⚠️</span>
+                <div>
+                  <div className="font-mono text-xs font-bold" style={{ color: '#231F20' }}>{dupCount} transaksi duplikat</div>
+                  <div className="font-mono text-[10px] mt-0.5" style={{ color: '#231F2088' }}>Sudah pernah di-import sebelumnya. Akan di-skip otomatis.</div>
+                </div>
+              </div>
+            );
+            return null;
+          })()}
 
           {/* Ringkasan */}
           <div className="p-4 rounded-lg border space-y-3" style={{ borderColor: '#231F2010' }}>

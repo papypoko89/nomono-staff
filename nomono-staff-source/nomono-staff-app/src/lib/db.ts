@@ -388,14 +388,20 @@ export function useSupabaseData() {
   };
 
   const updateMemberBalance = async (memberId: string, addExp: number, addKoin: number) => {
-    const member = members.find(m => m.id === memberId);
-    if (!member) return false;
+    // Fetch fresh dari DB untuk hindari stale state (penting kalau 1 member ada multiple transaksi)
+    const { data: fresh, error: fetchErr } = await supabase
+      .from('members')
+      .select('total_exp, coin_balance')
+      .eq('id', memberId)
+      .single();
+
+    if (fetchErr || !fresh) return false;
 
     const { error } = await supabase
       .from('members')
       .update({
-        total_exp: member.total_exp + addExp,
-        coin_balance: member.koin_balance + addKoin
+        total_exp: fresh.total_exp + addExp,
+        coin_balance: fresh.coin_balance + addKoin,
       })
       .eq('id', memberId);
 
