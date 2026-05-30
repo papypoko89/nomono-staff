@@ -1,5 +1,5 @@
 // ── Permission keys ──
-export type TogglePerm = 'checkin'|'assign_activity'|'view_members'|'edit_members'|'view_transactions'|'approve_pin';
+export type TogglePerm = 'checkin'|'assign_activity'|'view_members'|'edit_members'|'view_transactions'|'approve_pin'|'import_majoo'|'review_unmatched';
 export type LevelPerm = 'master_presets'|'master_tiers'|'master_roles'|'manage_staff';
 export type PermKey = TogglePerm | LevelPerm;
 export type PermLevel = 'none'|'view'|'modify';
@@ -11,6 +11,8 @@ export const TOGGLE_PERMS: {key:TogglePerm;label:string}[] = [
   {key:'edit_members',label:'Tambah/Edit Member'},
   {key:'view_transactions',label:'Lihat Transaksi'},
   {key:'approve_pin',label:'Approve PIN'},
+  {key:'import_majoo',label:'Import Data Majoo'},
+  {key:'review_unmatched',label:'Review Transaksi Unmatched'},
 ];
 
 export const LEVEL_PERMS: {key:LevelPerm;label:string}[] = [
@@ -49,12 +51,14 @@ export interface Member {
   full_name: string;
   email: string;
   phone: string | null;
+  phone_normalized?: string | null;
   avatar_url: string | null;
   date_of_birth: string | null;
   joined_at: string;
   is_active: boolean;
   total_exp: number;
   koin_balance: number;
+  majoo_synced_at?: string | null;
 }
 
 export interface Staff {
@@ -88,6 +92,9 @@ export interface CheckIn {
   exp_earned: number;
 }
 
+// Sumber transaksi: manual (scan preset) atau majoo (import file)
+export type TransactionSource = 'manual' | 'majoo';
+
 export interface Transaction {
   id: string;
   member_id: string;
@@ -97,6 +104,56 @@ export interface Transaction {
   preset_id: string | null;
   created_by: string;
   staff_name: string;
+  created_at: string;
+  source?: TransactionSource;
+  majoo_import_id?: string | null;
+  majoo_transaction_id?: string | null;
+  nominal_amount?: number | null;
+}
+
+// ── Majoo Import ──
+// Satu record per file yang di-upload admin
+export interface MajooImport {
+  id: string;
+  imported_at: string;
+  imported_by: string | null;
+  imported_by_name: string | null;
+  file_name: string | null;
+  periode_start: string | null;
+  periode_end: string | null;
+  total_rows: number;
+  matched_count: number;
+  unmatched_count: number;
+  skipped_count: number;
+  total_exp_added: number;
+  total_koin_added: number;
+  total_nominal: number;
+  status: 'pending' | 'completed' | 'failed' | 'rolled_back';
+  notes: string | null;
+  skip_reasons: Record<string, number> | null;
+}
+
+// ── Unmatched Transaction ──
+// Transaksi dari Majoo yang tidak bisa di-match ke member manapun
+export type UnmatchedReason = 'no_phone' | 'invalid_phone' | 'phone_not_found';
+export type UnmatchedStatus = 'pending' | 'assigned' | 'skipped';
+
+export interface UnmatchedTransaction {
+  id: string;
+  import_id: string | null;
+  majoo_transaction_id: string | null;
+  majoo_phone: string | null;
+  majoo_phone_normalized: string | null;
+  majoo_customer_name: string | null;
+  transaction_date: string | null;
+  total_nominal: number;
+  reason: UnmatchedReason | null;
+  status: UnmatchedStatus;
+  assigned_member_id: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolved_by_name: string | null;
+  notes: string | null;
   created_at: string;
 }
 
@@ -183,9 +240,9 @@ export const DEFAULT_TIERS: TierConfig[] = [
 ];
 
 // ── Default Roles ──
-const allToggleOn: Record<TogglePerm,boolean> = {checkin:true,assign_activity:true,view_members:true,edit_members:true,view_transactions:true,approve_pin:true};
+const allToggleOn: Record<TogglePerm,boolean> = {checkin:true,assign_activity:true,view_members:true,edit_members:true,view_transactions:true,approve_pin:true,import_majoo:true,review_unmatched:true};
 const allLevelMod: Record<LevelPerm,PermLevel> = {master_presets:'modify',master_tiers:'modify',master_roles:'modify',manage_staff:'modify'};
-const allToggleOff: Record<TogglePerm,boolean> = {checkin:false,assign_activity:false,view_members:false,edit_members:false,view_transactions:false,approve_pin:false};
+const allToggleOff: Record<TogglePerm,boolean> = {checkin:false,assign_activity:false,view_members:false,edit_members:false,view_transactions:false,approve_pin:false,import_majoo:false,review_unmatched:false};
 const allLevelNone: Record<LevelPerm,PermLevel> = {master_presets:'none',master_tiers:'none',master_roles:'none',manage_staff:'none'};
 
 export const DEFAULT_ROLES: RoleConfig[] = [

@@ -177,7 +177,7 @@ export default function SettingsPage({presets,setPresets,staffList,setStaffList,
           {canRoles==='modify'&&
             <button
               onClick={()=>{
-                const tp:Record<TogglePerm,boolean>={checkin:false,assign_activity:false,view_members:true,edit_members:false,view_transactions:false,approve_pin:false};
+                const tp:Record<TogglePerm,boolean>={checkin:false,assign_activity:false,view_members:true,edit_members:false,view_transactions:false,approve_pin:false,import_majoo:false,review_unmatched:false};
                 const lp:Record<LevelPerm,PermLevel>={master_presets:'none',master_tiers:'none',master_roles:'none',manage_staff:'none'};
                 setAddMode('role');
                 setEditR({id:`role_${Date.now()}`,name:'',description:'',togglePerms:tp,levelPerms:lp,is_system:false});
